@@ -125,7 +125,8 @@ async def process_turn(
     session, patient = repo.session_with_patient(payload.session_id)
     repo.ensure_owned(session, payload.patient_id, table="clinical_sessions")
 
-    language = (payload.language.value if payload.language else None) or session.get("language") or "en"
+    lang_val = payload.language.value if hasattr(payload.language, "value") else payload.language
+    language = lang_val or session.get("language") or "en"
     transcript: list[dict] = list(session.get("transcript") or [])
 
     # 1) record the patient's message

@@ -22,7 +22,7 @@ async def submit_transcript(payload: VoiceTranscriptIn, repo: RepoDep) -> VoiceT
     """Accept a browser ASR transcript, normalise it, and (optionally) feed it
     straight into the adaptive interview so the client makes a single call."""
     normalized = normalize_transcript(payload.transcript)
-    language = payload.language.value if payload.language else None
+    language = (payload.language.value if hasattr(payload.language, "value") else payload.language) if payload.language else None
 
     interview = None
     forwarded = False
@@ -50,5 +50,6 @@ async def submit_transcript(payload: VoiceTranscriptIn, repo: RepoDep) -> VoiceT
 
 @router.post("/speak", response_model=VoiceSpeakOut)
 async def speak(payload: VoiceSpeakIn) -> VoiceSpeakOut:
-    result = await synthesize(payload.text, payload.language.value, payload.voice_hint)
+    lang_val = payload.language.value if hasattr(payload.language, "value") else payload.language
+    result = await synthesize(payload.text, str(lang_val), payload.voice_hint)
     return VoiceSpeakOut(**result)

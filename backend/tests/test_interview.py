@@ -27,6 +27,17 @@ def test_interview_uses_scripted_fallback_without_groq(client, make_patient, mak
     assert sr.json()["status"] == "in_progress"
 
 
+def test_interview_with_explicit_language(client, make_patient, make_session):
+    p = make_patient()
+    s = make_session(p["id"])
+    r = _send(client, s["id"], p["id"], "Hello doctor", language="en")
+    assert r.status_code == 200, r.text
+    assert r.json()["next_question"]
+
+    r_hi = _send(client, s["id"], p["id"], "Mujhe bukhar hai", language="hi")
+    assert r_hi.status_code == 200, r_hi.text
+
+
 def test_interview_detects_red_flag_and_marks_session(client, make_patient, make_session):
     p = make_patient()
     s = make_session(p["id"])
