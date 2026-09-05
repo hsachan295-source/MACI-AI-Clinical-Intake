@@ -1,0 +1,12 @@
+# MACI backend - LOCAL / CI extras (not deployed to Vercel).
+-r requirements.txt
+
+# Local ASGI server (Vercel provides its own runtime)
+uvicorn[standard]==0.34.0
+
+# Optional maths (only needed if you enable a numpy-based embedding provider)
+numpy>=2.0
+
+# Tests
+pytest==8.3.4
+pytest-asyncio==0.25.0

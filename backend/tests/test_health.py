@@ -1,5 +1,19 @@
-def test_health_ok(client):
+def test_health_is_trivial_and_ok(client):
+    """GET /api/health must be dependency-free and always 200."""
     r = client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "service": "MACI API"}
+
+
+def test_plain_health_and_healthz(client):
+    for path in ("/health", "/healthz", "/api/healthz"):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert r.json()["status"] == "ok"
+
+
+def test_health_details_capability_probe(client):
+    r = client.get("/api/health/details")
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
@@ -11,11 +25,14 @@ def test_health_ok(client):
 
 
 def test_health_never_leaks_secrets(client):
-    r = client.get("/api/health")
-    assert "gsk_" not in r.text and "pcsk_" not in r.text and "sb_" not in r.text
+    for path in ("/api/health", "/api/health/details", "/"):
+        r = client.get(path)
+        assert "gsk_" not in r.text and "pcsk_" not in r.text and "sb_" not in r.text
 
 
 def test_root(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert r.json()["name"] == "MACI"
+    body = r.json()
+    assert body["name"] == "MACI"
+    assert body["service"] == "MACI API"

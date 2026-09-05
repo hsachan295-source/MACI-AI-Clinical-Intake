@@ -27,7 +27,7 @@ def get_repository() -> BaseRepository:
             repo.ping()
             log.info("Using Supabase repository")
             return repo
-        except Exception as exc:  # pragma: no cover - network/import dependent
+        except BaseException as exc:  # noqa: BLE001 - must never break app startup
             log.warning("Supabase unavailable (%s) - falling back to in-memory store", type(exc).__name__)
     else:
         log.info("Supabase not configured - using in-memory repository (data is not persisted)")

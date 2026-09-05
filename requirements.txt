@@ -1,0 +1,4 @@
+# Repo-root requirements for a Vercel deployment whose Root Directory is the
+# repo root. The canonical backend deployment (Root Directory = backend) uses
+# backend/requirements.txt instead.
+-r backend/requirements.txt

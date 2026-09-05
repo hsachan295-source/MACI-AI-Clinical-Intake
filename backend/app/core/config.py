@@ -8,10 +8,12 @@ API or consume quota.
 """
 from __future__ import annotations
 
+import os
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo layout:  <root>/backend/app/core/config.py  ->  <root>
@@ -36,7 +38,7 @@ class Settings(BaseSettings):
     app_debug: bool = True
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    cors_origins: str = "*"
 
     # --- Groq ---
     groq_api_key: str | None = None
@@ -56,9 +58,26 @@ class Settings(BaseSettings):
     pinecone_metric: str = "cosine"
 
     # --- Supabase ---
+    # Accept both the legacy names (SUPABASE_KEY / SUPABASE_SERVICE_KEY) and the
+    # newer Supabase names (SUPABASE_PUBLISHABLE_KEY / SUPABASE_SECRET_KEY /
+    # SUPABASE_ANON_KEY) so the Vercel env vars work as-is.
     supabase_url: str | None = None
-    supabase_key: str | None = None
-    supabase_service_key: str | None = None
+    supabase_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "supabase_key", "SUPABASE_KEY",
+            "supabase_publishable_key", "SUPABASE_PUBLISHABLE_KEY",
+            "supabase_anon_key", "SUPABASE_ANON_KEY",
+        ),
+    )
+    supabase_service_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "supabase_service_key", "SUPABASE_SERVICE_KEY",
+            "supabase_secret_key", "SUPABASE_SECRET_KEY",
+            "supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY",
+        ),
+    )
 
     # --- Embeddings ---
     embedding_provider: str = "auto"
@@ -81,14 +100,38 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
+        if self.cors_origins.strip() == "*":
+            return ["*"]
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
+    def is_serverless(self) -> bool:
+        """True on Vercel / AWS Lambda where only /tmp is writable."""
+        return bool(
+            os.environ.get("VERCEL")
+            or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+            or os.environ.get("LAMBDA_TASK_ROOT")
+        )
+
+    @property
     def upload_path(self) -> Path:
-        p = Path(self.upload_dir)
-        if not p.is_absolute():
-            p = ROOT_DIR / p
-        p.mkdir(parents=True, exist_ok=True)
+        """Writable directory for temporary uploaded files.
+
+        On serverless only ``/tmp`` is writable; everywhere else use the
+        configured ``upload_dir``. Never raises - falls back to the system temp
+        dir if the preferred location cannot be created.
+        """
+        if self.is_serverless:
+            p = Path(tempfile.gettempdir()) / "maci" / Path(self.upload_dir).name
+        else:
+            p = Path(self.upload_dir)
+            if not p.is_absolute():
+                p = ROOT_DIR / p
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            p = Path(tempfile.gettempdir()) / "maci-uploads"
+            p.mkdir(parents=True, exist_ok=True)
         return p
 
     @property

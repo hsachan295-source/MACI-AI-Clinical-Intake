@@ -116,52 +116,66 @@ class InMemoryVectorStore(BaseVectorStore):
         self._data.pop(_namespace(_require_patient(patient_id)), None)
 
 
+class PineconeUnavailable(RuntimeError):
+    """Raised internally when Pinecone cannot be reached; callers fall back."""
+
+
 class PineconeVectorStore(BaseVectorStore):
     backend = "pinecone"
 
     def __init__(self) -> None:
-        from pinecone import Pinecone  # lazy import
-
-        from app.services.embedding_service import HashingEmbedder
-
+        # NOTHING here touches the network or imports the pinecone package.
+        # Serverless-safe: construction never fails. The real client is created
+        # lazily on first use in ``_ensure_ready()``.
         self._embedder = get_embedder()
-        pc = Pinecone(api_key=settings.pinecone_api_key)
-        if settings.pinecone_host:
-            self._index = pc.Index(host=settings.pinecone_host)
-        else:
-            self._index = pc.Index(settings.pinecone_index_name)
+        self._index = None
+        self.index_dimension: int = settings.pinecone_dimension
+        self._ready = False
+        self._failed = False
 
-        # Cheap sanity call - raises if unreachable / wrong creds - and also
-        # tells us the index dimension so we never send a mismatched vector.
-        stats = self._index.describe_index_stats()
-        index_dim = getattr(stats, "dimension", None)
-        if index_dim is None and isinstance(stats, dict):
-            index_dim = stats.get("dimension")
-        self.index_dimension = int(index_dim) if index_dim else settings.pinecone_dimension
+    def _ensure_ready(self) -> None:
+        """Create the Pinecone client + detect index dimension on first use."""
+        if self._ready:
+            return
+        if self._failed:
+            raise PineconeUnavailable("Pinecone previously unreachable this process")
+        try:
+            from pinecone import Pinecone  # heavy import deferred to first use
 
-        if self._embedder.dimension != self.index_dimension:
-            if isinstance(self._embedder, HashingEmbedder):
-                # The offline embedder works at any dimension - match the index.
+            from app.services.embedding_service import HashingEmbedder
+
+            pc = Pinecone(api_key=settings.pinecone_api_key)
+            if settings.pinecone_host:
+                self._index = pc.Index(host=settings.pinecone_host)
+            else:
+                self._index = pc.Index(settings.pinecone_index_name)
+
+            stats = self._index.describe_index_stats()
+            index_dim = getattr(stats, "dimension", None)
+            if index_dim is None and isinstance(stats, dict):
+                index_dim = stats.get("dimension")
+            self.index_dimension = int(index_dim) if index_dim else settings.pinecone_dimension
+
+            if self._embedder.dimension != self.index_dimension and isinstance(self._embedder, HashingEmbedder):
                 log.warning(
-                    "Offline embedder dim %d != Pinecone index dim %d - adapting embedder to %d",
+                    "Offline embedder dim %d != Pinecone index dim %d - adapting to %d",
                     self._embedder.dimension, self.index_dimension, self.index_dimension,
                 )
                 self._embedder = HashingEmbedder(dimension=self.index_dimension)
-            else:
+            elif self._embedder.dimension != self.index_dimension:
                 log.error(
-                    "Embedding model '%s' outputs %d dims but the Pinecone index expects %d. "
-                    "Upserts will be rejected. Either set EMBEDDING_MODEL to a %d-dim model, "
-                    "or (re)create the index at %d dims (scripts/index_pinecone.py --create-index).",
+                    "Embedding model '%s' outputs %d dims but the index expects %d - upserts will fail.",
                     self._embedder.name, self._embedder.dimension, self.index_dimension,
-                    self.index_dimension, self._embedder.dimension,
                 )
-        log.info(
-            "Pinecone index ready (host=%s, dim=%d, embedder=%s/%d)",
-            bool(settings.pinecone_host), self.index_dimension,
-            self._embedder.name, self._embedder.dimension,
-        )
+            self._ready = True
+            log.info("Pinecone index ready (dim=%d, embedder=%s/%d)",
+                     self.index_dimension, self._embedder.name, self._embedder.dimension)
+        except BaseException as exc:  # noqa: BLE001 - never let Pinecone break a request
+            self._failed = True
+            raise PineconeUnavailable(f"Pinecone unavailable: {type(exc).__name__}") from exc
 
     def upsert(self, patient_id: str, records: list[VectorRecord]) -> int:
+        self._ensure_ready()
         pid = _require_patient(patient_id)
         ns = _namespace(pid)
         texts = [r.text for r in records if not r.values]
@@ -182,6 +196,7 @@ class PineconeVectorStore(BaseVectorStore):
     def query(
         self, patient_id: str, text: str, *, top_k: int = 5, extra_filter: dict | None = None
     ) -> list[Match]:
+        self._ensure_ready()
         pid = _require_patient(patient_id)
         flt: dict = {"patient_id": {"$eq": pid}}  # ALWAYS enforced
         if extra_filter:
@@ -212,6 +227,7 @@ class PineconeVectorStore(BaseVectorStore):
     def delete_for_patient(self, patient_id: str) -> None:
         pid = _require_patient(patient_id)
         try:
+            self._ensure_ready()
             self._index.delete(delete_all=True, namespace=_namespace(pid))
         except Exception as exc:  # pragma: no cover
             log.warning("Pinecone delete failed: %s", type(exc).__name__)
@@ -241,10 +257,10 @@ def get_vector_store() -> BaseVectorStore:
         return _store
     if settings.pinecone_enabled:
         try:
-            _store = PineconeVectorStore()
+            _store = PineconeVectorStore()  # construction does NO network I/O
             return _store
-        except Exception as exc:  # pragma: no cover - network/import dependent
-            log.warning("Pinecone unavailable (%s) - using in-memory vector store", type(exc).__name__)
+        except BaseException as exc:  # noqa: BLE001 - must never break app startup
+            log.warning("Pinecone init skipped (%s) - using in-memory vector store", type(exc).__name__)
     else:
         log.info("Pinecone not configured - using in-memory vector store")
     _store = InMemoryVectorStore()

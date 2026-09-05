@@ -1,10 +1,16 @@
 """MACI FastAPI application entrypoint.
 
-Run:  uvicorn app.main:app --reload   (from the backend/ directory)
+Local:   uvicorn app.main:app --reload   (from the backend/ directory)
+Vercel:  imported by backend/api/index.py as the ASGI `app`.
+
+Design for serverless:
+* No `lifespan` / startup hook. Nothing here touches the network, the LLM, the
+  vector store or the database at import or startup time. Every integration is
+  created lazily on first use (`get_repository()`, `get_vector_store()`,
+  `get_groq()` ...) and each of those degrades to an offline fallback.
+* `GET /` and `GET /health` are trivial and dependency-free.
 """
 from __future__ import annotations
-
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,25 +23,6 @@ from app.core.logging import configure_logging, get_logger
 configure_logging("DEBUG" if settings.app_debug else "INFO")
 log = get_logger("main")
 
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    status = settings.integration_status()
-    log.info(
-        "MACI starting | env=%s | integrations: %s",
-        settings.app_env,
-        ", ".join(f"{k}={'on' if v else 'off (fallback)'}" for k, v in status.items()),
-    )
-    # Touch the repository/vector store so their backend choice is logged now.
-    from app.repositories import get_repository
-    from app.services.pinecone_service import get_vector_store
-
-    get_repository()
-    get_vector_store()
-    yield
-    log.info("MACI shutting down")
-
-
 app = FastAPI(
     title="MACI - Multilingual AI Clinical Intake Platform",
     description=(
@@ -44,12 +31,12 @@ app = FastAPI(
         "only; not certified for HIPAA/DPDP/ABDM."
     ),
     version="0.1.0",
-    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=None if settings.cors_origin_list == ["*"] else r"https://.*\.vercel\.app",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -62,9 +49,19 @@ app.include_router(api_router)
 
 @app.get("/", include_in_schema=False)
 def root() -> dict:
+    """Trivial root - never calls an external service."""
     return {
         "name": "MACI",
         "full_name": "Multilingual AI Clinical Intake Platform",
+        "service": "MACI API",
+        "status": "ok",
         "docs": "/docs",
-        "health": "/api/health",
+        "health": "/health",
     }
+
+
+@app.get("/health", tags=["health"], include_in_schema=True)
+@app.get("/healthz", include_in_schema=False)
+def health() -> dict:
+    """Liveness probe. MUST NOT depend on Supabase, Pinecone, Groq or OCR.Space."""
+    return {"status": "ok", "service": "MACI API"}
