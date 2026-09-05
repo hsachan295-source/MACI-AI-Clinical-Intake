@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# MACI - Multilingual AI Clinical Intake Platform
+# ---------------------------------------------------------------------------
+
+# Secrets - NEVER commit real credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local data / uploads (real datasets are provided separately)
+data/uploads/
+data/real/
+data/_generated/
+*.sqlite
+*.db
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log

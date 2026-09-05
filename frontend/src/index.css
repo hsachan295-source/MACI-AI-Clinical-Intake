@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-clinical-bg text-clinical-ink antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl bg-clinical-card shadow-card border border-clinical-line;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-clinical-ink hover:bg-clinical-line/60;
+  }
+  .btn-outline {
+    @apply btn border border-clinical-line bg-white text-clinical-ink hover:bg-clinical-bg;
+  }
+  .btn-danger {
+    @apply btn bg-rose-600 text-white hover:bg-rose-700;
+  }
+  .input {
+    @apply w-full rounded-xl border border-clinical-line bg-white px-3.5 py-2.5 text-[15px]
+           placeholder:text-clinical-muted/70 focus:border-brand-400 focus:outline-none
+           focus:ring-2 focus:ring-brand-100;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-clinical-ink;
+  }
+  .kiosk-btn {
+    @apply btn min-h-[64px] px-6 text-lg;
+  }
+  .skeleton {
+    @apply relative overflow-hidden rounded-lg bg-clinical-line/70;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent;
+    animation: shimmer 1.4s infinite;
+  }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

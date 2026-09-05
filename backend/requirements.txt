@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# MACI backend dependencies (Python 3.11+)
+# ---------------------------------------------------------------------------
+
+# --- Core web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.10.4
+pydantic-settings==2.7.0
+
+# --- HTTP client (Groq / OCR.Space calls) ---
+httpx==0.28.1
+
+# --- Config ---
+python-dotenv==1.0.1
+
+# --- Math / embeddings fallback ---
+numpy==2.2.1
+
+# --- Integrations (optional at runtime - app degrades gracefully if absent) ---
+# supabase >= 2.15 is required to accept the newer `sb_publishable_...` / `sb_secret_...` API keys.
+supabase==2.31.0
+pinecone==5.4.2
+
+# --- Testing ---
+pytest==8.3.4
+pytest-asyncio==0.25.0
+
+# ---------------------------------------------------------------------------
+# OPTIONAL local embedding models. Uncomment ONE to use real embeddings
+# instead of the offline deterministic hash embedder. Not required to run.
+# ---------------------------------------------------------------------------
+# fastembed==0.5.1
+# sentence-transformers==3.3.1

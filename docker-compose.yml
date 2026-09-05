@@ -1,0 +1,41 @@
+# MACI - local container stack.
+#
+#   cp .env.example .env      # fill in the keys you have (all optional)
+#   docker compose up --build
+#
+#   Frontend  -> http://localhost:5173
+#   Backend   -> http://localhost:8000  (docs at /docs)
+#
+# The app runs even with NO keys set (deterministic offline fallbacks).
+# Postgres is Supabase-hosted; there is no local DB container by design.
+
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - .env
+    environment:
+      APP_ENV: docker
+      API_PORT: "8000"
+      CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173"
+      UPLOAD_DIR: /data/uploads
+    volumes:
+      - maci_uploads:/data/uploads
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Same-origin: nginx proxies /api -> backend
+        VITE_API_BASE_URL: ""
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+    restart: unless-stopped
+
+volumes:
+  maci_uploads:
