@@ -12,8 +12,9 @@ Design for serverless:
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -65,3 +66,24 @@ def root() -> dict:
 def health() -> dict:
     """Liveness probe. MUST NOT depend on Supabase, Pinecone, Groq or OCR.Space."""
     return {"status": "ok", "service": "MACI API"}
+
+
+@app.api_route(
+    "/{full_path:path}",
+    methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    include_in_schema=False,
+)
+def _not_found(full_path: str, request: Request) -> JSONResponse:
+    """Informative 404 - names the path the app actually received, which makes
+    reverse-proxy / rewrite misconfiguration (e.g. on Vercel) diagnosable."""
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": {
+                "code": "route_not_found",
+                "message": f"No route for {request.method} {request.url.path}",
+                "received_path": request.url.path,
+                "hint": "Try /health, /api/health, /docs",
+            }
+        },
+    )
