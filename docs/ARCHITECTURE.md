@@ -197,7 +197,7 @@ sequenceDiagram
 flowchart TD
     REQ[HTTP request] --> RT[Route + Pydantic validation]
     RT --> SVC[Service layer]
-    SVC --> DET{External service<br/>configured & reachable?}
+    SVC --> DET{External service configured and reachable?}
 
     DET -- Groq yes --> G1[Groq JSON mode<br/>+ retry + repair pass]
     DET -- Groq no/err --> G2[Scripted interview /<br/>template summary /<br/>heuristic structuring]
@@ -225,12 +225,12 @@ The choice is logged at startup and surfaced at `GET /api/health`
 ```mermaid
 flowchart TD
     MSG[Patient message / summary text] --> RULES[Deterministic rule + regex engine]
-    RULES --> NEG{Negated?<br/>"no", "denies", "without"…}
-    NEG -- yes --> DROP[Ignore match]
-    NEG -- no --> HIT[Record RedFlagHit<br/>rule_id · category · severity]
+    RULES --> NEG{Negation check}
+    NEG -- negated --> DROP[Ignore match<br/>cue words: no, denies, without]
+    NEG -- not negated --> HIT[Record RedFlagHit<br/>rule_id, category, severity]
 
     HIT --> SEV{Highest severity}
-    SEV -- emergency/urgent --> ESC[red_flag = true<br/>priority = emergency/urgent]
+    SEV -- emergency or urgent --> ESC[red_flag = true<br/>priority = emergency / urgent]
     SEV -- none --> OKk[priority = standard]
 
     subgraph OPT["Optional additive LLM screen (never removes a rule hit)"]
@@ -240,8 +240,8 @@ flowchart TD
     OKk --> MERGE
     LLMS --> MERGE
 
-    MERGE --> ACT["Patient: 'Potential urgent symptom detected.<br/>Please contact medical staff immediately.'<br/>(never a diagnosis)"]
-    MERGE --> DBW[session.red_flag = true<br/>session.triage_priority ↑<br/>create alerts row]
+    MERGE --> ACT[Patient warning: potential urgent symptom detected<br/>contact medical staff immediately - never a diagnosis]
+    MERGE --> DBW[session.red_flag = true<br/>session.triage_priority raised<br/>create alerts row]
     DBW --> DASH[Doctor dashboard: HIGH PRIORITY badge + alert]
 ```
 
