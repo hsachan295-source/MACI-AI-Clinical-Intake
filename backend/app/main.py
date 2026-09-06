@@ -47,6 +47,13 @@ app.add_middleware(
 register_exception_handlers(app)
 app.include_router(api_router)
 
+# On Vercel, restore the original request path that `rewrites` strips (see
+# app/core/vercel.py). No-op locally and on any non-serverless host.
+if settings.is_serverless:
+    from app.core.vercel import VercelRewritePathMiddleware
+
+    app.add_middleware(VercelRewritePathMiddleware)
+
 
 @app.get("/", include_in_schema=False)
 def root() -> dict:
