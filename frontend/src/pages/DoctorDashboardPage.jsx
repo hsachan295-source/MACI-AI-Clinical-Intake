@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
+import { motion } from "framer-motion";
 import { Activity, AlertTriangle, CheckCircle2, Clock, RefreshCw, Users } from "lucide-react";
 import { DoctorShell } from "../components/layout.jsx";
 import { AnalyticsCharts, QueueTable } from "../components/doctor.jsx";
-import { Button, ErrorState, StatCard } from "../components/ui.jsx";
+import { Button, ErrorState, PageHeader, StatCard, Tabs } from "../components/ui.jsx";
+import { staggerParent, listItem } from "../lib/motion.jsx";
 import { api, ApiError } from "../lib/api";
 
 const PRIORITY_FILTERS = [
@@ -14,7 +16,6 @@ const PRIORITY_FILTERS = [
   { value: "standard", label: "Standard" },
   { value: "routine", label: "Routine" },
 ];
-
 const POLL_MS = 15000;
 
 export default function DoctorDashboardPage() {
@@ -61,12 +62,15 @@ export default function DoctorDashboardPage() {
   const emergencies = queue?.items?.filter((i) => i.triage_priority === "emergency" || i.red_flag).length || 0;
   useEffect(() => {
     if (emergencies > 0 && tab === "queue") {
-      toast(() => (
-        <span className="flex items-center gap-2 text-rose-700">
-          <AlertTriangle className="h-4 w-4" />
-          {emergencies} high-priority patient{emergencies > 1 ? "s" : ""} in the queue
-        </span>
-      ), { id: "hp-alert" });
+      toast(
+        () => (
+          <span className="flex items-center gap-2 font-semibold text-critical">
+            <AlertTriangle className="h-4 w-4" />
+            {emergencies} high-priority patient{emergencies > 1 ? "s" : ""} in the queue
+          </span>
+        ),
+        { id: "hp-alert" }
+      );
     }
   }, [emergencies, tab]);
 
@@ -77,52 +81,72 @@ export default function DoctorDashboardPage() {
     setParams(p, { replace: true });
   };
 
+  const hourly = analytics?.intake_activity_by_hour?.map((b) => b.value) || [];
+
   return (
     <DoctorShell
       right={
-        <Button variant="ghost" onClick={() => load()} className="px-2.5" aria-label="Refresh">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => load()}
+          className="px-2.5"
+          aria-label="Refresh dashboard"
+        >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
         </Button>
       }
     >
-      {/* Stat cards */}
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <StatCard label="Patients today" value={analytics?.patients_today ?? "—"} icon={Users} />
-        <StatCard label="Waiting" value={analytics?.waiting ?? "—"} icon={Clock} tone="amber" />
-        <StatCard label="High priority" value={analytics?.high_priority ?? "—"} icon={AlertTriangle} tone="rose" />
-        <StatCard label="Completed intake" value={analytics?.completed_intake ?? "—"} icon={CheckCircle2} tone="emerald" />
-        <StatCard
-          label="Avg intake time"
-          value={analytics ? `${analytics.average_intake_minutes} min` : "—"}
-          sub="submitted − created"
-          icon={Activity}
+      <PageHeader
+        icon={Users}
+        title="Overview"
+        subtitle="Live patient queue and clinical analytics · auto-refreshing"
+      />
+
+      <motion.div
+        variants={staggerParent(0.06)}
+        initial="hidden"
+        animate="show"
+        className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-5"
+      >
+        {[
+          { label: "Patients today", numeric: analytics?.patients_today, icon: Users, tone: "primary", spark: hourly },
+          { label: "Waiting", numeric: analytics?.waiting, icon: Clock, tone: "warning" },
+          { label: "High priority", numeric: analytics?.high_priority, icon: AlertTriangle, tone: "danger" },
+          { label: "Completed intake", numeric: analytics?.completed_intake, icon: CheckCircle2, tone: "success" },
+          {
+            label: "Avg intake time",
+            numeric: analytics?.average_intake_minutes,
+            decimals: analytics?.average_intake_minutes % 1 ? 1 : 0,
+            suffix: " min",
+            sub: "submitted − created",
+            icon: Activity,
+            tone: "accent",
+          },
+        ].map((s) => (
+          <motion.div key={s.label} variants={listItem}>
+            <StatCard {...s} loading={!analytics} />
+          </motion.div>
+        ))}
+      </motion.div>
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <Tabs
+          tabs={[
+            { value: "queue", label: "Patient Queue" },
+            { value: "analytics", label: "Analytics" },
+          ]}
+          value={tab}
+          onChange={setTab}
         />
-      </div>
-
-      {/* Tabs */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="inline-flex rounded-xl border border-clinical-line bg-white p-0.5">
-          {["queue", "analytics"].map((tk) => (
-            <button
-              key={tk}
-              onClick={() => setTab(tk)}
-              className={`rounded-lg px-4 py-1.5 text-sm font-semibold capitalize transition ${
-                tab === tk ? "bg-brand-600 text-white" : "text-clinical-muted hover:text-clinical-ink"
-              }`}
-            >
-              {tk}
-            </button>
-          ))}
-        </div>
-
         {tab === "queue" && (
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1.5 text-xs font-medium text-clinical-muted">
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-fg-muted">
               <input
                 type="checkbox"
                 checked={includeReviewed}
                 onChange={(e) => setIncludeReviewed(e.target.checked)}
-                className="h-4 w-4 rounded border-clinical-line text-brand-600"
+                className="h-4 w-4 rounded border-border-strong text-primary focus:ring-ring/50"
               />
               Show reviewed
             </label>

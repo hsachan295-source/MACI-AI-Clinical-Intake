@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import toast from "react-hot-toast";
-import { ArrowLeft, CheckCircle2, ClipboardCheck, User } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowLeft, CheckCircle2, ClipboardCheck, Leaf, User } from "lucide-react";
 import { DoctorShell } from "../components/layout.jsx";
 import {
   AttentionPoints,
@@ -19,12 +20,20 @@ import {
   PriorityBadge,
   RedFlagPill,
   SkeletonRows,
+  Tabs,
   TextInput,
+  cx,
 } from "../components/ui.jsx";
 import { initials, titleCase } from "../lib/format";
+import { fadeUp } from "../lib/motion.jsx";
 import { api, ApiError } from "../lib/api";
 
-const TABS = ["Summary", "Documents", "Timeline", "AYUSH"];
+const TABS = [
+  { value: "Summary", label: "Clinical Summary" },
+  { value: "Documents", label: "Documents" },
+  { value: "Timeline", label: "Timeline" },
+  { value: "AYUSH", label: "AYUSH" },
+];
 
 export default function DoctorPatientPage() {
   const { patientId } = useParams();
@@ -71,7 +80,6 @@ export default function DoctorPatientPage() {
       setSaving(false);
     }
   }
-
   async function confirmSummary(body) {
     setSaving(true);
     try {
@@ -84,7 +92,6 @@ export default function DoctorPatientPage() {
       setSaving(false);
     }
   }
-
   async function rejectSummary(body) {
     setSaving(true);
     try {
@@ -97,7 +104,6 @@ export default function DoctorPatientPage() {
       setSaving(false);
     }
   }
-
   async function markReviewed() {
     if (!reviewer.trim()) return;
     setSaving(true);
@@ -115,8 +121,9 @@ export default function DoctorPatientPage() {
 
   return (
     <DoctorShell
+      title="Patient workspace"
       right={
-        <Link to="/doctor" className="btn-ghost px-2.5 py-2 text-sm">
+        <Link to="/doctor" className="btn-ghost h-9 px-2.5 text-sm">
           <ArrowLeft className="h-4 w-4" /> Queue
         </Link>
       }
@@ -129,16 +136,16 @@ export default function DoctorPatientPage() {
         <ErrorState message={error} onRetry={load} />
       ) : (
         <>
-          {/* Patient overview */}
-          <Card className="mb-4 p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+          {/* Sticky patient header */}
+          <motion.div variants={fadeUp} initial="hidden" animate="show" className="sticky top-16 z-20 -mx-4 mb-4 px-4 lg:-mx-6 lg:px-6">
+            <Card className="flex flex-wrap items-start justify-between gap-4 border-border-strong bg-card/80 p-5 backdrop-blur-xl">
               <div className="flex items-center gap-4">
-                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-lg font-bold text-brand-700">
+                <span className="grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 font-display text-lg font-bold text-primary">
                   {initials(data.overview.full_name)}
                 </span>
                 <div>
-                  <h1 className="text-xl font-extrabold text-clinical-ink">{data.overview.full_name}</h1>
-                  <p className="text-sm text-clinical-muted">
+                  <h1 className="font-display text-xl font-extrabold tracking-tight text-fg">{data.overview.full_name}</h1>
+                  <p className="text-sm text-fg-muted">
                     {[
                       data.overview.age ? `${data.overview.age} years` : null,
                       titleCase(data.overview.gender),
@@ -148,107 +155,110 @@ export default function DoctorPatientPage() {
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
-                  <p className="mt-1 text-sm font-medium text-clinical-ink">
-                    Chief complaint: <span className="font-normal">{data.overview.chief_complaint || "—"}</span>
+                  <p className="mt-1 text-sm text-fg">
+                    <span className="font-medium text-fg-muted">Chief complaint:</span>{" "}
+                    {data.overview.chief_complaint || "—"}
                   </p>
                 </div>
               </div>
               <div className="flex flex-col items-end gap-2">
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
                   <PriorityBadge priority={data.triage_priority} />
                   {data.red_flag && <RedFlagPill />}
-                  <Badge className="border-clinical-line bg-clinical-bg text-clinical-muted">
-                    {titleCase(data.session_status)}
-                  </Badge>
+                  <Badge tone="neutral">{titleCase(data.session_status)}</Badge>
                 </div>
                 {data.session_status === "reviewed" ? (
-                  <span className="flex items-center gap-1 text-sm font-semibold text-emerald-600">
+                  <span className="flex items-center gap-1.5 text-sm font-semibold text-success">
                     <CheckCircle2 className="h-4 w-4" /> Reviewed
                   </span>
                 ) : (
-                  <Button onClick={() => setReviewOpen(true)}>
+                  <Button size="sm" onClick={() => setReviewOpen(true)}>
                     <ClipboardCheck className="h-4 w-4" /> Mark as reviewed
                   </Button>
                 )}
               </div>
-            </div>
-          </Card>
+            </Card>
+          </motion.div>
 
           <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
             <div>
-              <div className="mb-3 inline-flex flex-wrap rounded-xl border border-clinical-line bg-white p-0.5">
-                {TABS.map((tk) => (
-                  <button
-                    key={tk}
-                    onClick={() => setTab(tk)}
-                    className={`rounded-lg px-3.5 py-1.5 text-sm font-semibold transition ${
-                      tab === tk ? "bg-brand-600 text-white" : "text-clinical-muted hover:text-clinical-ink"
-                    }`}
-                  >
-                    {tk}
-                  </button>
-                ))}
-              </div>
+              <Tabs tabs={TABS} value={tab} onChange={setTab} className="mb-3" />
 
-              {tab === "Summary" &&
-                (summary ? (
-                  <EditableSummary
-                    key={`${summary.id}:${summary.status}:${summary.updated_at}`}
-                    summary={summary}
-                    saving={saving}
-                    onSaveDraft={saveDraft}
-                    onConfirm={confirmSummary}
-                    onReject={rejectSummary}
-                  />
-                ) : (
-                  <EmptyState
-                    icon={User}
-                    title="No summary generated yet"
-                    subtitle="The patient has not completed the AI review step."
-                  />
-                ))}
+              <motion.div key={tab} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
+                {tab === "Summary" &&
+                  (summary ? (
+                    <EditableSummary
+                      key={`${summary.id}:${summary.status}:${summary.updated_at}`}
+                      summary={summary}
+                      saving={saving}
+                      onSaveDraft={saveDraft}
+                      onConfirm={confirmSummary}
+                      onReject={rejectSummary}
+                    />
+                  ) : (
+                    <EmptyState
+                      icon={User}
+                      title="No summary generated yet"
+                      subtitle="The patient has not completed the AI review step."
+                    />
+                  ))}
 
-              {tab === "Documents" && <DocumentIntelligence documents={data.documents} />}
-              {tab === "Timeline" && (
-                <Card className="p-5">
-                  <TimelineView events={data.timeline} />
-                </Card>
-              )}
-              {tab === "AYUSH" &&
-                (data.ayush_assessment ? (
+                {tab === "Documents" && <DocumentIntelligence documents={data.documents} />}
+
+                {tab === "Timeline" && (
                   <Card className="p-5">
-                    <h3 className="mb-3 text-sm font-bold uppercase tracking-wide text-clinical-muted">
-                      AYUSH / Ayurveda assessment
-                    </h3>
-                    <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-                      {Object.entries(data.ayush_assessment)
-                        .filter(([, v]) => v)
-                        .map(([k, v]) => (
-                          <div key={k} className="grid grid-cols-[130px_1fr] gap-2 text-sm">
-                            <dt className="font-semibold text-clinical-muted">{titleCase(k)}</dt>
-                            <dd className="text-clinical-ink">{String(v)}</dd>
-                          </div>
-                        ))}
-                    </dl>
+                    <TimelineView events={data.timeline} />
                   </Card>
-                ) : (
-                  <EmptyState title="No AYUSH assessment" subtitle="This intake used the general clinical mode." />
-                ))}
+                )}
+
+                {tab === "AYUSH" &&
+                  (data.ayush_assessment ? (
+                    <Card className="p-5">
+                      <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-fg-subtle">
+                        <Leaf className="h-4 w-4 text-success" /> AYUSH / Ayurveda assessment
+                      </h3>
+                      <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                        {Object.entries(data.ayush_assessment)
+                          .filter(([, v]) => v)
+                          .map(([k, v]) => (
+                            <div key={k} className="grid grid-cols-[130px_1fr] gap-2 text-sm">
+                              <dt className="font-semibold text-fg-subtle">{titleCase(k)}</dt>
+                              <dd className="text-fg">{String(v)}</dd>
+                            </div>
+                          ))}
+                      </dl>
+                    </Card>
+                  ) : (
+                    <EmptyState title="No AYUSH assessment" subtitle="This intake used the general clinical mode." />
+                  ))}
+              </motion.div>
             </div>
 
-            {/* Right rail */}
-            <div className="space-y-4">
+            <aside className="space-y-4">
               <AttentionPoints
                 points={summary?.attention_points}
                 redFlags={summary?.red_flags?.length ? summary.red_flags : data.summary?.red_flags}
               />
-              <Card className="p-4 text-xs text-clinical-muted">
-                <p className="font-semibold text-clinical-ink">Session</p>
-                <p className="mt-1">ID: {String(data.session_id).slice(0, 8)}…</p>
-                <p>Transcript: {data.transcript_available ? "captured" : "none"}</p>
-                {summary?.model_name && <p>Model: {summary.model_name}</p>}
+              <Card className="p-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-fg-subtle">Session</p>
+                <dl className="mt-2 space-y-1 text-xs text-fg-muted">
+                  <div className="flex justify-between gap-2">
+                    <dt>ID</dt>
+                    <dd className={cx("font-mono text-fg")}>{String(data.session_id).slice(0, 8)}…</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt>Transcript</dt>
+                    <dd className="text-fg">{data.transcript_available ? "Captured" : "None"}</dd>
+                  </div>
+                  {summary?.model_name && (
+                    <div className="flex justify-between gap-2">
+                      <dt>Model</dt>
+                      <dd className="text-fg">{summary.model_name}</dd>
+                    </div>
+                  )}
+                </dl>
               </Card>
-            </div>
+            </aside>
           </div>
         </>
       )}
@@ -259,21 +269,29 @@ export default function DoctorPatientPage() {
         title="Mark patient as reviewed"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setReviewOpen(false)}>
+            <Button variant="ghost" size="sm" onClick={() => setReviewOpen(false)}>
               Cancel
             </Button>
-            <Button loading={saving} disabled={!reviewer.trim()} onClick={markReviewed}>
+            <Button size="sm" loading={saving} disabled={!reviewer.trim()} onClick={markReviewed}>
               Confirm
             </Button>
           </>
         }
       >
-        <p className="text-sm text-clinical-muted">
+        <p className="text-sm text-fg-muted">
           This moves the patient out of the active queue and acknowledges any open alerts.
         </p>
         <div className="mt-3">
-          <label className="label">Your name</label>
-          <TextInput value={reviewer} onChange={(e) => setReviewer(e.target.value)} placeholder="e.g. Dr. Rao" autoFocus />
+          <label className="label" htmlFor="reviewer-name">
+            Your name
+          </label>
+          <TextInput
+            id="reviewer-name"
+            value={reviewer}
+            onChange={(e) => setReviewer(e.target.value)}
+            placeholder="e.g. Dr. Rao"
+            autoFocus
+          />
         </div>
       </Modal>
     </DoctorShell>

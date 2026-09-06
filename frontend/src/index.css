@@ -2,64 +2,222 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
-}
+/* ============================================================================
+   MACI design tokens — semantic colours as space-separated RGB channels so
+   Tailwind opacity modifiers keep working and the whole theme swaps by only
+   redefining variables. Light is the base; dark overrides under [data-theme].
+   ========================================================================= */
+@layer base {
+  :root {
+    --background: 244 248 253;
+    --surface: 255 255 255;
+    --surface-elevated: 255 255 255;
+    --card: 255 255 255;
+    --border: 224 231 242;
+    --border-strong: 201 212 230;
 
-html,
-body,
-#root {
-  height: 100%;
-}
+    --text-primary: 15 27 45;
+    --text-secondary: 68 84 111;
+    --text-muted: 120 133 156;
 
-body {
-  @apply bg-clinical-bg text-clinical-ink antialiased;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    --primary: 37 99 235;
+    --primary-hover: 29 78 216;
+    --primary-foreground: 255 255 255;
+    --accent: 8 145 178;
+
+    --success: 15 148 100;
+    --warning: 194 128 4;
+    --danger: 220 38 38;
+    --critical: 225 29 72;
+
+    --ring: 37 99 235;
+    --grid: 203 213 231;
+    --shadow: 15 27 45;
+    --inset-hi: 0.75;
+
+    --orb-1: 186 216 255;
+    --orb-2: 173 240 249;
+    --orb-3: 223 216 255;
+
+    color-scheme: light;
+  }
+
+  [data-theme='dark'] {
+    --background: 8 12 22;
+    --surface: 15 21 34;
+    --surface-elevated: 23 31 48;
+    --card: 18 25 41;
+    --border: 39 49 70;
+    --border-strong: 55 68 96;
+
+    --text-primary: 233 238 247;
+    --text-secondary: 158 171 193;
+    --text-muted: 121 135 158;
+
+    --primary: 59 130 246;
+    --primary-hover: 96 165 250;
+    --primary-foreground: 255 255 255;
+    --accent: 34 211 238;
+
+    --success: 34 197 94;
+    --warning: 245 180 22;
+    --danger: 248 113 113;
+    --critical: 251 113 133;
+
+    --ring: 96 165 250;
+    --grid: 46 60 86;
+    --shadow: 0 0 0;
+    --inset-hi: 0.06;
+
+    --orb-1: 30 64 175;
+    --orb-2: 12 74 110;
+    --orb-3: 67 30 129;
+
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-fg antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgb(var(--primary) / 0.22);
+  }
+
+  /* Smooth, brief cross-fade only while the theme is being switched */
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition:
+      background-color 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+      color 0.32s cubic-bezier(0.16, 1, 0.3, 1),
+      fill 0.32s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  }
+
+  /* Themed scrollbars */
+  * {
+    scrollbar-color: rgb(var(--border-strong)) transparent;
+    scrollbar-width: thin;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--border-strong) / 0.8);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--text-muted) / 0.7);
+    background-clip: content-box;
+  }
 }
 
 @layer components {
-  .card {
-    @apply rounded-2xl bg-clinical-card shadow-card border border-clinical-line;
+  /* --- Surfaces --------------------------------------------------------- */
+  .glass {
+    @apply rounded-2xl border border-border/80 bg-card/70 shadow-card backdrop-blur-xl;
   }
+  .glass-strong {
+    @apply rounded-2xl border border-border bg-card/90 shadow-card backdrop-blur-2xl;
+  }
+  .card {
+    @apply rounded-2xl border border-border bg-card shadow-card;
+  }
+  .card-hover {
+    @apply transition duration-300 ease-premium hover:-translate-y-0.5 hover:border-border-strong hover:shadow-pop;
+  }
+  .hairline {
+    @apply border-border;
+  }
+
+  /* --- Buttons -------------------------------------------------------- */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition
-           focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply relative inline-flex select-none items-center justify-center gap-2 rounded-xl text-sm font-semibold
+           transition duration-200 ease-premium
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2
+           focus-visible:ring-offset-bg disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
+    @apply btn bg-primary-sheen text-primary-foreground shadow-[0_6px_20px_-6px_rgb(var(--primary)/0.6)]
+           hover:brightness-[1.06] active:brightness-95;
   }
-  .btn-ghost {
-    @apply btn bg-transparent text-clinical-ink hover:bg-clinical-line/60;
+  .btn-solid {
+    @apply btn bg-primary text-primary-foreground hover:bg-primary-hover active:brightness-95;
   }
   .btn-outline {
-    @apply btn border border-clinical-line bg-white text-clinical-ink hover:bg-clinical-bg;
+    @apply btn border border-border-strong bg-surface/60 text-fg backdrop-blur hover:bg-elevated hover:border-primary/40;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent text-fg-muted hover:bg-fg/5 hover:text-fg;
   }
   .btn-danger {
-    @apply btn bg-rose-600 text-white hover:bg-rose-700;
+    @apply btn bg-danger text-white hover:brightness-95;
   }
+
+  /* --- Inputs -------------------------------------------------------- */
   .input {
-    @apply w-full rounded-xl border border-clinical-line bg-white px-3.5 py-2.5 text-[15px]
-           placeholder:text-clinical-muted/70 focus:border-brand-400 focus:outline-none
-           focus:ring-2 focus:ring-brand-100;
+    @apply w-full rounded-xl border border-border bg-surface px-3.5 py-2.5 text-[15px] text-fg
+           shadow-[inset_0_1px_2px_rgb(var(--shadow)/0.04)]
+           placeholder:text-fg-subtle/80 transition
+           focus:border-primary/60 focus:outline-none focus:ring-4 focus:ring-primary/10;
   }
+  .field-label,
   .label {
-    @apply mb-1.5 block text-sm font-semibold text-clinical-ink;
+    @apply mb-1.5 block text-sm font-semibold text-fg;
   }
   .kiosk-btn {
-    @apply btn min-h-[64px] px-6 text-lg;
+    @apply btn min-h-[60px] rounded-2xl px-6 text-base;
+  }
+
+  /* --- Bits -------------------------------------------------------- */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs
+           font-medium text-fg-muted transition hover:border-primary/40 hover:bg-primary/10 hover:text-fg;
+  }
+  .kbd {
+    @apply rounded-md border border-border bg-elevated px-1.5 py-0.5 font-mono text-[11px] text-fg-muted;
   }
   .skeleton {
-    @apply relative overflow-hidden rounded-lg bg-clinical-line/70;
+    @apply relative overflow-hidden rounded-lg bg-fg/10;
   }
   .skeleton::after {
-    content: "";
-    @apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/60 to-transparent;
-    animation: shimmer 1.4s infinite;
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(90deg, transparent, rgb(var(--surface-elevated) / 0.9), transparent);
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* --- Ambient backdrop -------------------------------------------------- */
+  .grid-bg {
+    @apply pointer-events-none absolute inset-0 bg-grid-fade bg-grid;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+  .orb {
+    @apply pointer-events-none absolute rounded-full blur-[90px] will-change-transform;
   }
 }
 
-/* Respect reduced motion */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Respect the OS "reduce motion" setting (Framer Motion also honours it) */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -67,5 +225,6 @@ body {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

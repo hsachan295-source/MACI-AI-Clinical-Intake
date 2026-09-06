@@ -1,36 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
-import { ArrowLeft, ArrowRight, CheckCircle2, RotateCcw } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Keyboard,
+  Mic,
+  RotateCcw,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { Logo, LanguagePicker } from "../components/layout.jsx";
 import {
   AyushForm,
   ChatPanel,
+  ClinicalIntelligencePanel,
   DocumentCard,
-  DocumentUploader,
-  MicButton,
-  ProgressSteps,
+  DocumentDropzone,
+  ProgressStepper,
   RedFlagBanner,
   SummaryReview,
+  VoiceOrb,
 } from "../components/intake.jsx";
 import {
   AiDraftNotice,
+  AIStatus,
+  Alert,
   Button,
   Card,
   Checkbox,
   EmptyState,
   Field,
-  Select,
+  RadioCards,
   SectionTitle,
-  Spinner,
+  Select,
   TextInput,
 } from "../components/ui.jsx";
+import { ThemeSelector } from "../lib/theme.jsx";
 import { CLINICAL_MODES, GENDERS, STEPS } from "../lib/constants";
 import { useI18n } from "../lib/i18n";
 import { speak, cancelSpeech } from "../lib/useVoice";
 import { api, ApiError } from "../lib/api";
 
-const LS_KEY = "maci.intake.v1";
+const LS_KEY = "maci.intake.v2";
+const LAST = STEPS.length - 1; // 6
 
 const emptyState = {
   step: 0,
@@ -49,6 +64,12 @@ function loadPersisted() {
   }
 }
 
+const stepMotion = {
+  initial: { opacity: 0, x: 24 },
+  animate: { opacity: 1, x: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } },
+  exit: { opacity: 0, x: -24, transition: { duration: 0.2 } },
+};
+
 export default function PatientIntakePage() {
   const { lang, setLang, t } = useI18n();
   const [persist, setPersist] = useState(loadPersisted);
@@ -63,33 +84,31 @@ export default function PatientIntakePage() {
   }, [persist]);
 
   const { step } = persist;
-  const setStep = (n) => setP({ step: Math.max(0, Math.min(STEPS.length - 1, n)) });
+  const setStep = (n) => setP({ step: Math.max(0, Math.min(LAST, n)) });
 
-  // --- step 0 form ---
   const [form, setForm] = useState({ full_name: "", age: "", gender: "undisclosed", phone: "" });
   const [consent, setConsent] = useState({ data: false, ai: false, share: false });
   const [busy, setBusy] = useState(false);
 
-  // --- interview ---
   const [transcript, setTranscript] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [triage, setTriage] = useState(null);
+  const [partialHistory, setPartialHistory] = useState(null);
+  const [completionPct, setCompletionPct] = useState(0);
+  const [questionCount, setQuestionCount] = useState(0);
   const [interviewComplete, setInterviewComplete] = useState(false);
   const [sending, setSending] = useState(false);
   const [speakAloud, setSpeakAloud] = useState(false);
 
-  // --- documents ---
   const [documents, setDocuments] = useState([]);
   const [docBusy, setDocBusy] = useState(false);
   const [processingId, setProcessingId] = useState(null);
 
-  // --- review ---
   const [summary, setSummary] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [ayush, setAyush] = useState({});
   const [ayushSaving, setAyushSaving] = useState(false);
 
-  // --- submit ---
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -105,16 +124,18 @@ export default function PatientIntakePage() {
         ]);
         setTranscript(iv.transcript || []);
         setInterviewComplete(Boolean(iv.is_complete));
+        setCompletionPct(iv.completion_pct || 0);
+        setQuestionCount(iv.question_count || 0);
+        setPartialHistory(iv.partial_history || null);
         setDocuments(docs || []);
-        if (persist.step >= 4) {
+        if (persist.step >= 5) {
           try {
             setSummary(await api.getSessionSummary(persist.sessionId));
           } catch {
             /* not generated yet */
           }
         }
-      } catch (e) {
-        // stale ids — reset silently
+      } catch {
         resetAll(false);
       }
     })();
@@ -122,8 +143,7 @@ export default function PatientIntakePage() {
   }, []);
 
   const handleApiError = (e, fallback) => {
-    const msg = e instanceof ApiError ? e.message : fallback;
-    toast.error(msg || fallback);
+    toast.error(e instanceof ApiError ? e.message : fallback || "Something went wrong");
   };
 
   function resetAll(confirmFirst = true) {
@@ -139,6 +159,9 @@ export default function PatientIntakePage() {
     setTranscript([]);
     setSuggestions([]);
     setTriage(null);
+    setPartialHistory(null);
+    setCompletionPct(0);
+    setQuestionCount(0);
     setInterviewComplete(false);
     setDocuments([]);
     setSummary(null);
@@ -147,37 +170,42 @@ export default function PatientIntakePage() {
     restoredRef.current = true;
   }
 
-  /* ---------------- Step 0: details + consent ---------------- */
-  const canSubmitDetails =
-    form.full_name.trim().length > 1 && consent.data && consent.ai && consent.share;
+  /* -------- step 0: details -------- */
+  const canContinueDetails = form.full_name.trim().length > 1;
 
-  async function submitDetails() {
-    if (!canSubmitDetails) return;
+  /* -------- step 1: consent -> create patient + record consent -------- */
+  const canConsent = consent.data && consent.ai && consent.share;
+  async function agreeAndContinue() {
+    if (!canConsent) return;
     setBusy(true);
     try {
-      const patient = await api.createPatient({
-        full_name: form.full_name,
-        age: form.age ? Number(form.age) : null,
-        gender: form.gender,
-        preferred_language: lang,
-        phone: form.phone || null,
-      });
-      await api.recordConsent(patient.id, {
-        patient_id: patient.id,
+      let patientId = persist.patientId;
+      if (!patientId) {
+        const patient = await api.createPatient({
+          full_name: form.full_name,
+          age: form.age ? Number(form.age) : null,
+          gender: form.gender,
+          preferred_language: lang,
+          phone: form.phone || null,
+        });
+        patientId = patient.id;
+      }
+      await api.recordConsent(patientId, {
+        patient_id: patientId,
         data_processing: consent.data,
         ai_assistance: consent.ai,
         share_with_clinician: consent.share,
       });
-      setP({ patientId: patient.id, step: 1 });
-      toast.success("Details saved");
+      setP({ patientId, step: 2 });
+      toast.success("Consent recorded");
     } catch (e) {
-      handleApiError(e, "Could not save your details");
+      handleApiError(e, "Could not record consent");
     } finally {
       setBusy(false);
     }
   }
 
-  /* ---------------- Step 1: symptoms ---------------- */
+  /* -------- step 2: symptoms -> create session + first message -------- */
   async function startInterview() {
     if (persist.chiefComplaint.trim().length < 3) {
       toast.error("Please describe your main problem");
@@ -203,7 +231,7 @@ export default function PatientIntakePage() {
         language: lang,
       });
       applyInterviewResponse(res, persist.chiefComplaint);
-      setP({ sessionId, step: 2 });
+      setP({ sessionId, step: 3 });
     } catch (e) {
       handleApiError(e, "Could not start the interview");
     } finally {
@@ -211,7 +239,7 @@ export default function PatientIntakePage() {
     }
   }
 
-  /* ---------------- Step 2: interview ---------------- */
+  /* -------- step 3: interview -------- */
   function applyInterviewResponse(res, patientText) {
     setTranscript((prev) => {
       const next = [...prev];
@@ -223,6 +251,9 @@ export default function PatientIntakePage() {
     setSuggestions(res.suggested_replies || []);
     setTriage(res.triage || null);
     setInterviewComplete(Boolean(res.is_complete));
+    if (res.partial_history) setPartialHistory(res.partial_history);
+    if (typeof res.completion_pct === "number") setCompletionPct(res.completion_pct);
+    if (typeof res.question_count === "number") setQuestionCount(res.question_count);
     if (res.triage?.red_flag) {
       toast.error("Potential urgent symptom — please alert staff", { duration: 6000 });
     }
@@ -250,7 +281,7 @@ export default function PatientIntakePage() {
     }
   }
 
-  /* ---------------- Step 3: documents ---------------- */
+  /* -------- step 4: documents -------- */
   async function pickDocument(file, documentType) {
     setDocBusy(true);
     try {
@@ -269,7 +300,6 @@ export default function PatientIntakePage() {
       setDocBusy(false);
     }
   }
-
   async function processDocument(id) {
     setProcessingId(id);
     try {
@@ -283,7 +313,6 @@ export default function PatientIntakePage() {
       setProcessingId(null);
     }
   }
-
   async function saveCorrection(id, patch) {
     try {
       const updated = await api.correctDocument(id, persist.patientId, patch);
@@ -294,14 +323,11 @@ export default function PatientIntakePage() {
     }
   }
 
-  /* ---------------- Step 4: review ---------------- */
+  /* -------- step 5: review -------- */
   const generateSummary = useCallback(async () => {
     setSummaryLoading(true);
     try {
-      const s = await api.generateSummary({
-        session_id: persist.sessionId,
-        patient_id: persist.patientId,
-      });
+      const s = await api.generateSummary({ session_id: persist.sessionId, patient_id: persist.patientId });
       setSummary(s);
     } catch (e) {
       handleApiError(e, "Could not generate the summary");
@@ -311,20 +337,14 @@ export default function PatientIntakePage() {
   }, [persist.sessionId, persist.patientId]);
 
   useEffect(() => {
-    if (step === 4 && persist.sessionId && !summary && !summaryLoading) {
-      generateSummary();
-    }
+    if (step === 5 && persist.sessionId && !summary && !summaryLoading) generateSummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   async function saveAyush() {
     setAyushSaving(true);
     try {
-      await api.saveAyush({
-        session_id: persist.sessionId,
-        patient_id: persist.patientId,
-        assessment: ayush,
-      });
+      await api.saveAyush({ session_id: persist.sessionId, patient_id: persist.patientId, assessment: ayush });
       toast.success("AYUSH assessment saved");
       await generateSummary();
     } catch (e) {
@@ -334,7 +354,7 @@ export default function PatientIntakePage() {
     }
   }
 
-  /* ---------------- Step 5: submit ---------------- */
+  /* -------- step 6: submit -------- */
   async function submitToDoctor() {
     setSubmitting(true);
     try {
@@ -349,183 +369,209 @@ export default function PatientIntakePage() {
     }
   }
 
-  const headerRight = (
-    <div className="flex items-center gap-2">
-      <LanguagePicker value={lang} onChange={setLang} />
-      <Button variant="ghost" onClick={() => resetAll(true)} className="px-2.5">
-        <RotateCcw className="h-4 w-4" />
-        <span className="hidden sm:inline">New</span>
-      </Button>
-    </div>
-  );
-
   return (
-    <div className="min-h-screen bg-clinical-bg">
-      <header className="sticky top-0 z-30 border-b border-clinical-line bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-40 border-b border-border bg-card/70 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
           <Logo />
-          {headerRight}
+          <div className="flex items-center gap-2">
+            <LanguagePicker value={lang} onChange={setLang} className="hidden sm:inline-flex" />
+            <ThemeSelector className="hidden sm:inline-flex" />
+            <ThemeSelector variant="compact" className="sm:hidden" />
+            <Button variant="ghost" size="sm" onClick={() => resetAll(true)} className="px-2.5">
+              <RotateCcw className="h-4 w-4" />
+              <span className="hidden sm:inline">New</span>
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-6">
-        <div className="mb-6 overflow-x-auto">
-          <ProgressSteps current={step} />
+        <div className="mb-6">
+          <ProgressStepper current={step} onJump={done ? undefined : setStep} />
         </div>
 
-        {triage?.red_flag && step >= 2 && step <= 4 && (
-          <div className="mb-4">
-            <RedFlagBanner triage={triage} />
-          </div>
-        )}
+        <AnimatePresence>
+          {triage?.red_flag && step >= 3 && step <= 5 && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4">
+              <RedFlagBanner triage={triage} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {done ? (
           <DoneScreen name={form.full_name} triage={triage} onNew={() => resetAll(false)} />
         ) : (
-          <Card className="p-5 sm:p-6">
-            {step === 0 && (
-              <StepDetails
-                t={t}
-                lang={lang}
-                setLang={setLang}
-                form={form}
-                setForm={setForm}
-                consent={consent}
-                setConsent={setConsent}
-                clinicalMode={persist.clinicalMode}
-                setClinicalMode={(v) => setP({ clinicalMode: v })}
-                canSubmit={canSubmitDetails}
-                busy={busy}
-                onNext={submitDetails}
-              />
-            )}
-
-            {step === 1 && (
-              <StepSymptoms
-                t={t}
-                lang={lang}
-                mode={persist.mode}
-                setMode={(m) => setP({ mode: m })}
-                value={persist.chiefComplaint}
-                setValue={(v) => setP({ chiefComplaint: v })}
-                busy={busy}
-                onBack={() => setStep(0)}
-                onNext={startInterview}
-              />
-            )}
-
-            {step === 2 && (
-              <div className="space-y-4">
-                <SectionTitle hint="One question at a time. This records your history — it does not diagnose.">
-                  {t("history.title")}
-                </SectionTitle>
-                <ChatPanel
-                  transcript={transcript}
-                  langCode={lang}
-                  mode={persist.mode}
-                  pending={sending}
-                  speakAloud={speakAloud}
-                  onToggleSpeak={() => setSpeakAloud((v) => !v)}
-                  onSend={(text) => sendMessage(text)}
-                  suggestions={suggestions}
-                  isComplete={interviewComplete}
-                  onFinish={() => setStep(3)}
+          <AnimatePresence mode="wait">
+            <motion.div key={step} variants={stepMotion} initial="initial" animate="animate" exit="exit">
+              {step === 0 && (
+                <StepDetails
+                  t={t}
+                  form={form}
+                  setForm={setForm}
+                  clinicalMode={persist.clinicalMode}
+                  setClinicalMode={(v) => setP({ clinicalMode: v })}
+                  canContinue={canContinueDetails}
+                  onNext={() => setStep(1)}
                 />
-                <div className="flex items-center justify-between">
-                  <Button variant="ghost" onClick={() => setStep(1)}>
-                    <ArrowLeft className="h-4 w-4" /> Back
-                  </Button>
-                  {!interviewComplete && (
-                    <Button
-                      variant="outline"
-                      onClick={() => sendMessage("I have answered enough for now.", true)}
-                      loading={sending}
-                    >
-                      {t("history.finish")}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            )}
+              )}
 
-            {step === 3 && (
-              <div className="space-y-4">
-                <SectionTitle hint={t("documents.hint")}>{t("documents.title")}</SectionTitle>
-                <DocumentUploader onPick={pickDocument} busy={docBusy} />
-                <div className="space-y-3">
-                  {documents.length === 0 && (
-                    <EmptyState
-                      title="No documents yet"
-                      subtitle="You can skip this step if you have nothing to upload."
-                    />
-                  )}
-                  {documents.map((doc) => (
-                    <DocumentCard
-                      key={doc.id}
-                      doc={doc}
-                      processing={processingId === doc.id}
-                      onProcess={processDocument}
-                      onSaveCorrection={saveCorrection}
-                    />
-                  ))}
-                </div>
-                <StepNav onBack={() => setStep(2)} onNext={() => setStep(4)} nextLabel="Continue to review" />
-              </div>
-            )}
+              {step === 1 && (
+                <StepConsent
+                  t={t}
+                  consent={consent}
+                  setConsent={setConsent}
+                  canConsent={canConsent}
+                  busy={busy}
+                  onBack={() => setStep(0)}
+                  onNext={agreeAndContinue}
+                />
+              )}
 
-            {step === 4 && (
-              <div className="space-y-4">
-                <SectionTitle hint={t("review.disclaimer")}>{t("review.title")}</SectionTitle>
-                {summaryLoading && !summary ? (
-                  <div className="py-10 text-center">
-                    <Spinner label="Building your clinical summary…" className="justify-center" />
+              {step === 2 && (
+                <StepSymptoms
+                  t={t}
+                  lang={lang}
+                  mode={persist.mode}
+                  setMode={(m) => setP({ mode: m })}
+                  value={persist.chiefComplaint}
+                  setValue={(v) => setP({ chiefComplaint: v })}
+                  busy={busy}
+                  onBack={() => setStep(1)}
+                  onNext={startInterview}
+                />
+              )}
+
+              {step === 3 && (
+                <div className="space-y-4">
+                  <SectionTitle hint="One question at a time. This records your history — it does not diagnose.">
+                    {t("history.title")}
+                  </SectionTitle>
+                  <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+                    <ChatPanel
+                      transcript={transcript}
+                      langCode={lang}
+                      mode={persist.mode}
+                      pending={sending}
+                      speakAloud={speakAloud}
+                      onToggleSpeak={() => setSpeakAloud((v) => !v)}
+                      onSend={(text) => sendMessage(text)}
+                      suggestions={suggestions}
+                      isComplete={interviewComplete}
+                      onFinish={() => setStep(4)}
+                    />
+                    <ClinicalIntelligencePanel
+                      chiefComplaint={persist.chiefComplaint}
+                      history={partialHistory}
+                      triage={triage}
+                      completionPct={completionPct}
+                      questionCount={questionCount}
+                    />
                   </div>
-                ) : (
-                  <>
-                    {persist.clinicalMode === "ayush" && (
-                      <AyushForm
-                        value={ayush}
-                        onChange={setAyush}
-                        onSave={saveAyush}
-                        saving={ayushSaving}
+                  <div className="flex items-center justify-between">
+                    <Button variant="ghost" onClick={() => setStep(2)}>
+                      <ArrowLeft className="h-4 w-4" /> Back
+                    </Button>
+                    {!interviewComplete && (
+                      <Button
+                        variant="outline"
+                        onClick={() => sendMessage("I have answered enough for now.", true)}
+                        loading={sending}
+                      >
+                        {t("history.finish")}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {step === 4 && (
+                <div className="space-y-4">
+                  <SectionTitle hint={t("documents.hint")}>{t("documents.title")}</SectionTitle>
+                  <DocumentDropzone onPick={pickDocument} busy={docBusy} />
+                  <div className="space-y-3">
+                    {documents.length === 0 && (
+                      <EmptyState
+                        title="No documents yet"
+                        subtitle="You can skip this step if you have nothing to upload."
                       />
                     )}
-                    <SummaryReview summary={summary} />
-                    <div className="flex justify-end">
-                      <Button variant="outline" onClick={generateSummary} loading={summaryLoading}>
-                        Regenerate
-                      </Button>
-                    </div>
-                  </>
-                )}
-                <StepNav
-                  onBack={() => setStep(3)}
-                  onNext={() => setStep(5)}
-                  nextLabel="Continue to submit"
-                  nextDisabled={!summary}
-                />
-              </div>
-            )}
-
-            {step === 5 && (
-              <div className="space-y-5 text-center">
-                <SectionTitle>{t("submit.title")}</SectionTitle>
-                <AiDraftNotice className="justify-center" />
-                <p className="mx-auto max-w-md text-sm text-clinical-muted">
-                  Your structured history and any uploaded documents will be made available on your doctor’s
-                  dashboard before your consultation.
-                </p>
-                <Button className="mx-auto px-6 py-3 text-base" loading={submitting} onClick={submitToDoctor}>
-                  {t("common.submit")}
-                </Button>
-                <div>
-                  <Button variant="ghost" onClick={() => setStep(4)}>
-                    <ArrowLeft className="h-4 w-4" /> Back to review
-                  </Button>
+                    {documents.map((doc) => (
+                      <DocumentCard
+                        key={doc.id}
+                        doc={doc}
+                        processing={processingId === doc.id}
+                        onProcess={processDocument}
+                        onSaveCorrection={saveCorrection}
+                      />
+                    ))}
+                  </div>
+                  <StepNav onBack={() => setStep(3)} onNext={() => setStep(5)} nextLabel="Continue to review" />
                 </div>
-              </div>
-            )}
-          </Card>
+              )}
+
+              {step === 5 && (
+                <div className="space-y-4">
+                  <SectionTitle hint={t("review.disclaimer")}>{t("review.title")}</SectionTitle>
+                  {summaryLoading && !summary ? (
+                    <Card className="space-y-3 p-6">
+                      <AIStatus
+                        steps={[
+                          "Retrieving relevant history…",
+                          "Structuring medical information…",
+                          "Checking safety indicators…",
+                          "Preparing clinical summary…",
+                        ]}
+                      />
+                      <div className="space-y-2">
+                        <div className="skeleton h-3 w-2/3" />
+                        <div className="skeleton h-3 w-full" />
+                        <div className="skeleton h-3 w-5/6" />
+                        <div className="skeleton h-28 w-full" />
+                      </div>
+                    </Card>
+                  ) : (
+                    <>
+                      {persist.clinicalMode === "ayush" && (
+                        <AyushForm value={ayush} onChange={setAyush} onSave={saveAyush} saving={ayushSaving} />
+                      )}
+                      <SummaryReview summary={summary} />
+                      <div className="flex justify-end">
+                        <Button variant="outline" onClick={generateSummary} loading={summaryLoading}>
+                          <RotateCcw className="h-4 w-4" /> Regenerate
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                  <StepNav
+                    onBack={() => setStep(4)}
+                    onNext={() => setStep(6)}
+                    nextLabel="Continue to submit"
+                    nextDisabled={!summary}
+                  />
+                </div>
+              )}
+
+              {step === 6 && (
+                <Card className="space-y-5 p-6 text-center sm:p-8">
+                  <SectionTitle right={null}>{t("submit.title")}</SectionTitle>
+                  <AiDraftNotice className="mx-auto w-fit" />
+                  <p className="mx-auto max-w-md text-sm text-fg-muted">
+                    Your structured history and any uploaded documents will be made available on your doctor’s
+                    dashboard before your consultation.
+                  </p>
+                  <Button className="mx-auto" size="xl" loading={submitting} onClick={submitToDoctor}>
+                    <Sparkles className="h-5 w-5" /> {t("common.submit")}
+                  </Button>
+                  <div>
+                    <Button variant="ghost" onClick={() => setStep(5)}>
+                      <ArrowLeft className="h-4 w-4" /> Back to review
+                    </Button>
+                  </div>
+                </Card>
+              )}
+            </motion.div>
+          </AnimatePresence>
         )}
       </main>
     </div>
@@ -546,32 +592,23 @@ function StepNav({ onBack, onNext, nextLabel = "Next", nextDisabled }) {
   );
 }
 
-function StepDetails({
-  t,
-  form,
-  setForm,
-  consent,
-  setConsent,
-  clinicalMode,
-  setClinicalMode,
-  canSubmit,
-  busy,
-  onNext,
-}) {
+function StepDetails({ t, form, setForm, clinicalMode, setClinicalMode, canContinue, onNext }) {
   return (
-    <div className="space-y-5">
+    <Card className="space-y-6 p-5 sm:p-6">
       <SectionTitle hint="Large text and simple controls — for every patient.">{t("details.title")}</SectionTitle>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label={t("details.name")} required>
+        <Field label={t("details.name")} required htmlFor="pt-name">
           <TextInput
+            id="pt-name"
             value={form.full_name}
             onChange={(e) => setForm({ ...form, full_name: e.target.value })}
             placeholder="e.g. Asha Rao"
             autoFocus
           />
         </Field>
-        <Field label={t("details.age")} hint={t("common.optional")}>
+        <Field label={t("details.age")} hint={t("common.optional")} htmlFor="pt-age">
           <TextInput
+            id="pt-age"
             type="number"
             min="0"
             max="130"
@@ -580,84 +617,76 @@ function StepDetails({
             placeholder="Years"
           />
         </Field>
-        <Field label={t("details.gender")}>
-          <Select
-            value={form.gender}
-            onChange={(e) => setForm({ ...form, gender: e.target.value })}
-            options={GENDERS}
-          />
+        <Field label={t("details.gender")} htmlFor="pt-gender">
+          <Select id="pt-gender" value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} options={GENDERS} />
         </Field>
-        <Field label={t("details.phone")} hint={t("common.optional")}>
+        <Field label={t("details.phone")} hint={t("common.optional")} htmlFor="pt-phone">
           <TextInput
+            id="pt-phone"
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
             placeholder="For appointment updates"
           />
         </Field>
-        <Field label="Intake mode">
-          <Select
-            value={clinicalMode}
-            onChange={(e) => setClinicalMode(e.target.value)}
-            options={CLINICAL_MODES}
-          />
-        </Field>
       </div>
-
-      <div>
-        <p className="label">{t("details.consentTitle")} <span className="text-rose-500">*</span></p>
-        <div className="space-y-2">
-          <Checkbox
-            id="c1"
-            checked={consent.data}
-            onChange={(v) => setConsent({ ...consent, data: v })}
-            label={t("details.consent.data")}
-          />
-          <Checkbox
-            id="c2"
-            checked={consent.ai}
-            onChange={(v) => setConsent({ ...consent, ai: v })}
-            label={t("details.consent.ai")}
-          />
-          <Checkbox
-            id="c3"
-            checked={consent.share}
-            onChange={(v) => setConsent({ ...consent, share: v })}
-            label={t("details.consent.share")}
-          />
-        </div>
-      </div>
-
+      <Field label="Intake mode">
+        <RadioCards
+          value={clinicalMode}
+          onChange={setClinicalMode}
+          options={CLINICAL_MODES.map((m) => ({ value: m.value, label: m.label }))}
+        />
+      </Field>
       <div className="flex justify-end">
-        <Button className="px-6 py-3 text-base" disabled={!canSubmit} loading={busy} onClick={onNext}>
+        <Button size="lg" disabled={!canContinue} onClick={onNext}>
           {t("common.continue")} <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </Card>
+  );
+}
+
+function StepConsent({ t, consent, setConsent, canConsent, busy, onBack, onNext }) {
+  return (
+    <Card className="space-y-5 p-5 sm:p-6">
+      <SectionTitle hint="You are in control of your information.">{t("details.consentTitle")}</SectionTitle>
+      <div className="space-y-2.5">
+        <Checkbox id="c1" checked={consent.data} onChange={(v) => setConsent({ ...consent, data: v })} label={t("details.consent.data")} />
+        <Checkbox id="c2" checked={consent.ai} onChange={(v) => setConsent({ ...consent, ai: v })} label={t("details.consent.ai")} />
+        <Checkbox id="c3" checked={consent.share} onChange={(v) => setConsent({ ...consent, share: v })} label={t("details.consent.share")} />
+      </div>
+      <Alert tone="info" title="What happens next" icon={ShieldCheck}>
+        An assistant asks a few short questions to build your history. A deterministic safety check runs on every
+        answer. Nothing is diagnosed — a clinician reviews everything.
+      </Alert>
+      <div className="flex items-center justify-between">
+        <Button variant="ghost" onClick={onBack}>
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <Button size="lg" disabled={!canConsent} loading={busy} onClick={onNext}>
+          Agree &amp; continue <ArrowRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </Card>
   );
 }
 
 function StepSymptoms({ t, lang, mode, setMode, value, setValue, busy, onBack, onNext }) {
   return (
-    <div className="space-y-5">
+    <Card className="space-y-5 p-5 sm:p-6">
       <SectionTitle>{t("symptoms.title")}</SectionTitle>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <button
-          onClick={() => setMode("voice")}
-          className={`kiosk-btn ${mode === "voice" ? "btn-primary" : "btn-outline"}`}
-        >
-          🎙️ {t("symptoms.modeVoice")}
-        </button>
-        <button
-          onClick={() => setMode("text")}
-          className={`kiosk-btn ${mode === "text" ? "btn-primary" : "btn-outline"}`}
-        >
-          ⌨️ {t("symptoms.modeText")}
-        </button>
-      </div>
+      <RadioCards
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "voice", label: t("symptoms.modeVoice"), hint: "Speak your answers", icon: Mic },
+          { value: "text", label: t("symptoms.modeText"), hint: "Type or tap", icon: Keyboard },
+        ]}
+      />
 
-      <Field label="Your main problem" required>
+      <Field label="Your main problem" required htmlFor="cc">
         <textarea
+          id="cc"
           className="input min-h-[130px] text-base"
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -666,12 +695,8 @@ function StepSymptoms({ t, lang, mode, setMode, value, setValue, busy, onBack, o
       </Field>
 
       {mode === "voice" && (
-        <div className="rounded-xl border border-clinical-line bg-clinical-bg/60 p-3">
-          <MicButton
-            langCode={lang}
-            onTranscript={(txt) => setValue(value ? `${value} ${txt}` : txt)}
-            large
-          />
+        <div className="rounded-2xl border border-border bg-surface/60 p-5">
+          <VoiceOrb langCode={lang} onFinalTranscript={(txt) => setValue(value ? `${value} ${txt}` : txt)} />
         </div>
       )}
 
@@ -679,36 +704,47 @@ function StepSymptoms({ t, lang, mode, setMode, value, setValue, busy, onBack, o
         <Button variant="ghost" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" /> Back
         </Button>
-        <Button className="px-6 py-3 text-base" loading={busy} onClick={onNext}>
+        <Button size="lg" loading={busy} onClick={onNext}>
           Start questions <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
 function DoneScreen({ name, triage, onNew }) {
   return (
-    <Card className="p-8 text-center">
-      <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-500" />
-      <h2 className="mt-4 text-2xl font-extrabold text-clinical-ink">All done{name ? `, ${name.split(" ")[0]}` : ""}!</h2>
-      <p className="mx-auto mt-2 max-w-md text-sm text-clinical-muted">
-        Your clinical history has been sent to your doctor and will be ready before your consultation.
-      </p>
-      {triage?.red_flag && (
-        <div className="mx-auto mt-4 max-w-md rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
-          A possible urgent symptom was noted and marked high priority for the care team. If you feel worse,
-          tell the staff at the desk now.
+    <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.4 }}>
+      <Card className="p-8 text-center sm:p-10">
+        <motion.span
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ type: "spring", stiffness: 260, damping: 18, delay: 0.1 }}
+          className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-success/12 text-success"
+        >
+          <CheckCircle2 className="h-9 w-9" />
+        </motion.span>
+        <h2 className="mt-4 font-display text-2xl font-extrabold tracking-tight text-fg">
+          All done{name ? `, ${name.split(" ")[0]}` : ""}!
+        </h2>
+        <p className="mx-auto mt-2 max-w-md text-sm text-fg-muted">
+          Your clinical history has been sent to your doctor and will be ready before your consultation.
+        </p>
+        {triage?.red_flag && (
+          <Alert tone="critical" title="Please tell the front desk now" className="mx-auto mt-4 max-w-md text-left">
+            A possible urgent symptom was noted and marked high priority for the care team. If you feel worse, alert
+            staff immediately.
+          </Alert>
+        )}
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
+          <Button onClick={onNew}>
+            <RotateCcw className="h-4 w-4" /> Start another intake
+          </Button>
+          <Link to="/" className="btn-outline h-10 px-4">
+            Home
+          </Link>
         </div>
-      )}
-      <div className="mt-6 flex flex-wrap justify-center gap-3">
-        <Button onClick={onNew}>
-          <RotateCcw className="h-4 w-4" /> Start another intake
-        </Button>
-        <Link to="/" className="btn-outline px-4 py-2.5">
-          Home
-        </Link>
-      </div>
-    </Card>
+      </Card>
+    </motion.div>
   );
 }

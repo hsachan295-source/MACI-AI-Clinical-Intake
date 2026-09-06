@@ -66,6 +66,7 @@ function safeJson(text) {
 
 export const api = {
   health: () => request("/api/health"),
+  healthDetails: () => request("/api/health/details"),
 
   // Patients + consent
   createPatient: (body) => request("/api/patients", { method: "POST", body }),
