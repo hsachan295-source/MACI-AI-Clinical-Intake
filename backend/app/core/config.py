@@ -13,7 +13,7 @@ import tempfile
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Repo layout:  <root>/backend/app/core/config.py  ->  <root>
@@ -22,20 +22,46 @@ ROOT_DIR = BACKEND_DIR.parent
 
 # Load `.env` from the backend folder first, then the repo root (root wins only
 # for keys not already set). pydantic-settings reads the *last* existing file.
+# Set MACI_DISABLE_DOTENV=1 to ignore any on-disk .env (used by the test-suite
+# so it is hermetic and never picks up a developer's local secrets).
 _ENV_FILES = [ROOT_DIR / ".env", BACKEND_DIR / ".env"]
+_ENV_FILE = (
+    None
+    if os.environ.get("MACI_DISABLE_DOTENV")
+    else ([str(p) for p in _ENV_FILES if p.exists()] or None)
+)
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=[str(p) for p in _ENV_FILES if p.exists()] or None,
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        # Vercel (and many CI systems) pass *defined-but-blank* variables as the
+        # empty string "". Without this, Pydantic tries to coerce "" -> bool/int
+        # and raises a ValidationError at ``Settings()``, which happens at import
+        # time and crashes the whole app. Treat "" as "not set" so the typed
+        # defaults below apply.
+        env_ignore_empty=True,
     )
 
+    # Belt-and-braces: drop any empty-string values from *every* source before
+    # field validation, so a blank env var / .env line can never break startup.
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_blank_values(cls, data):
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if not (isinstance(v, str) and v.strip() == "")}
+        return data
+
     # --- Application ---
+    # Every field below has a safe typed default. Startup NEVER depends on an
+    # environment variable being present - only optional *secret* values
+    # (Groq / OCR / Pinecone / Supabase keys) are allowed to be absent, and
+    # their absence only disables that one integration.
     app_env: str = "development"
-    app_debug: bool = True
+    app_debug: bool = False
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: str = "*"
@@ -86,11 +112,11 @@ class Settings(BaseSettings):
 
     # --- Storage ---
     upload_dir: str = "data/uploads"
-    max_upload_mb: int = 15
+    max_upload_mb: int = 10
 
     # --- Safety / behaviour ---
-    max_interview_questions: int = 12
-    llm_max_retries: int = 2
+    max_interview_questions: int = 20
+    llm_max_retries: int = 3
 
     # ------------------------------------------------------------------ helpers
     @field_validator("cors_origins")

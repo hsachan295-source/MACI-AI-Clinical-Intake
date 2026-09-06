@@ -1,29 +1,38 @@
 """Test configuration.
 
 CRITICAL: no test may consume real API quota. Before *any* app module is
-imported we blank every integration key in the environment (environment
-variables beat the repo ``.env`` file in pydantic-settings), forcing every
-service onto its deterministic offline fallback. External clients are also
-monkeypatched defensively.
+imported we make the config hermetic:
+
+* ``MACI_DISABLE_DOTENV=1`` so the developer's local ``.env`` is never read.
+* Every integration key is *removed* from the environment (not blanked - blanks
+  are now ignored by ``env_ignore_empty``), forcing every service onto its
+  deterministic offline fallback.
+
+External clients are also monkeypatched defensively.
 """
 from __future__ import annotations
 
 import os
 import tempfile
 
-# --- 1. neutralise all integrations BEFORE importing the app ----------------
+# --- 1. hermetic + offline config BEFORE importing the app -----------------
 _TMP = tempfile.mkdtemp(prefix="maci-test-")
+
+# Remove every integration secret (and all its aliases) so it is genuinely absent.
+for _var in (
+    "GROQ_API_KEY", "OCR_SPACE_API_KEY", "OCR_SPACE_API_URL",
+    "PINECONE_API_KEY", "PINECONE_HOST",
+    "SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_SERVICE_KEY",
+    "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+):
+    os.environ.pop(_var, None)
+
 os.environ.update(
     {
+        "MACI_DISABLE_DOTENV": "1",
         "APP_ENV": "test",
         "APP_DEBUG": "false",
-        "GROQ_API_KEY": "",
-        "OCR_SPACE_API_KEY": "",
-        "PINECONE_API_KEY": "",
-        "PINECONE_HOST": "",
-        "SUPABASE_URL": "",
-        "SUPABASE_KEY": "",
-        "SUPABASE_SERVICE_KEY": "",
         "EMBEDDING_PROVIDER": "hash",
         "EMBEDDING_DIMENSION": "128",
         "PINECONE_DIMENSION": "128",
