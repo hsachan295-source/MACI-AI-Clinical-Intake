@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { AlertTriangle, Check, Inbox, Loader2, Sparkles, X } from "lucide-react";
 import { priorityMeta } from "../lib/format";
 import { AnimatedNumber, EASE } from "../lib/motion.jsx";
+import { usePreferences } from "../lib/preferences.jsx";
 
 export const cx = (...a) => a.filter(Boolean).join(" ");
 const MDiv = motion.div;
@@ -137,8 +138,14 @@ export function Badge({ tone, className = "", children }) {
   );
 }
 
-export function PriorityBadge({ priority }) {
+export function PriorityBadge({ priority, display }) {
+  const { prefs } = usePreferences();
+  const mode = display || prefs?.priorityDisplay || "badge";
   const m = priorityMeta(priority);
+
+  if (mode === "text") {
+    return <span className={cx("text-xs font-bold", m.cls.split(" ")[1])}>{m.label}</span>;
+  }
   return (
     <span
       className={cx(
@@ -147,7 +154,7 @@ export function PriorityBadge({ priority }) {
       )}
     >
       <span className={cx("h-1.5 w-1.5 rounded-full", m.dot)} />
-      {m.label}
+      {mode !== "dot" && m.label}
     </span>
   );
 }

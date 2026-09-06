@@ -56,11 +56,22 @@ const emptyState = {
   chiefComplaint: "",
 };
 
+function prefIntakeMode() {
+  try {
+    const m = JSON.parse(localStorage.getItem("maci-prefs") || "{}")?.intakeMode;
+    return m === "voice" || m === "text" ? m : "text";
+  } catch {
+    return "text";
+  }
+}
+
 function loadPersisted() {
   try {
-    return { ...emptyState, ...JSON.parse(localStorage.getItem(LS_KEY) || "{}") };
+    const stored = localStorage.getItem(LS_KEY);
+    if (!stored) return { ...emptyState, mode: prefIntakeMode() }; // fresh intake honours the doctor's default
+    return { ...emptyState, ...JSON.parse(stored) };
   } catch {
-    return { ...emptyState };
+    return { ...emptyState, mode: prefIntakeMode() };
   }
 }
 
@@ -153,7 +164,7 @@ export default function PatientIntakePage() {
     } catch {
       /* ignore */
     }
-    setPersist({ ...emptyState });
+    setPersist({ ...emptyState, mode: prefIntakeMode() });
     setForm({ full_name: "", age: "", gender: "undisclosed", phone: "" });
     setConsent({ data: false, ai: false, share: false });
     setTranscript([]);

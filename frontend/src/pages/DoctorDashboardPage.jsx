@@ -7,6 +7,7 @@ import { DoctorShell } from "../components/layout.jsx";
 import { AnalyticsCharts, QueueTable } from "../components/doctor.jsx";
 import { Button, ErrorState, PageHeader, StatCard, Tabs } from "../components/ui.jsx";
 import { staggerParent, listItem } from "../lib/motion.jsx";
+import { usePreferences } from "../lib/preferences.jsx";
 import { api, ApiError } from "../lib/api";
 
 const PRIORITY_FILTERS = [
@@ -16,20 +17,26 @@ const PRIORITY_FILTERS = [
   { value: "standard", label: "Standard" },
   { value: "routine", label: "Routine" },
 ];
-const POLL_MS = 15000;
+const DONE_STATUSES = new Set(["submitted", "summary_ready", "reviewed"]);
 
 export default function DoctorDashboardPage() {
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "analytics" ? "analytics" : "queue";
+  const { prefs } = usePreferences();
+  const tab = params.get("tab")
+    ? params.get("tab") === "analytics"
+      ? "analytics"
+      : "queue"
+    : prefs.defaultTab;
 
   const [queue, setQueue] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [priority, setPriority] = useState("");
-  const [includeReviewed, setIncludeReviewed] = useState(false);
+  const [includeReviewed, setIncludeReviewed] = useState(prefs.showReviewed);
   const [refreshing, setRefreshing] = useState(false);
   const timer = useRef(null);
+  const prevStatus = useRef({});
 
   const load = useCallback(
     async ({ silent } = {}) => {
@@ -55,13 +62,18 @@ export default function DoctorDashboardPage() {
 
   useEffect(() => {
     load();
-    timer.current = setInterval(() => load({ silent: true }), POLL_MS);
-    return () => clearInterval(timer.current);
-  }, [load]);
+    if (prefs.autoRefresh) {
+      const ms = Math.max(5, prefs.refreshInterval || 15) * 1000;
+      timer.current = setInterval(() => load({ silent: true }), ms);
+      return () => clearInterval(timer.current);
+    }
+    return undefined;
+  }, [load, prefs.autoRefresh, prefs.refreshInterval]);
 
+  // High-priority alert (opt-out in Settings)
   const emergencies = queue?.items?.filter((i) => i.triage_priority === "emergency" || i.red_flag).length || 0;
   useEffect(() => {
-    if (emergencies > 0 && tab === "queue") {
+    if (prefs.notifyHighPriority && emergencies > 0 && tab === "queue") {
       toast(
         () => (
           <span className="flex items-center gap-2 font-semibold text-critical">
@@ -72,7 +84,21 @@ export default function DoctorDashboardPage() {
         { id: "hp-alert" }
       );
     }
-  }, [emergencies, tab]);
+  }, [emergencies, tab, prefs.notifyHighPriority]);
+
+  // Intake-completion notification (opt-in in Settings)
+  useEffect(() => {
+    const items = queue?.items || [];
+    if (prefs.notifyIntakeComplete && Object.keys(prevStatus.current).length) {
+      for (const it of items) {
+        const was = prevStatus.current[it.session_id];
+        if (was && !DONE_STATUSES.has(was) && DONE_STATUSES.has(it.status)) {
+          toast.success(`${it.patient_name} completed intake`, { id: `done-${it.session_id}` });
+        }
+      }
+    }
+    prevStatus.current = Object.fromEntries(items.map((i) => [i.session_id, i.status]));
+  }, [queue, prefs.notifyIntakeComplete]);
 
   const setTab = (next) => {
     const p = new URLSearchParams(params);
@@ -100,7 +126,11 @@ export default function DoctorDashboardPage() {
       <PageHeader
         icon={Users}
         title="Overview"
-        subtitle="Live patient queue and clinical analytics · auto-refreshing"
+        subtitle={
+          prefs.autoRefresh
+            ? `Live patient queue and clinical analytics · refreshing every ${prefs.refreshInterval || 15}s`
+            : "Live patient queue and clinical analytics"
+        }
       />
 
       <motion.div

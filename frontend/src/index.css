@@ -217,7 +217,9 @@
   }
 }
 
-/* Respect the OS "reduce motion" setting (Framer Motion also honours it) */
+/* --- Accessibility preferences (driven by src/lib/preferences.jsx) --------- */
+
+/* Reduce motion — OS setting OR the in-app toggle */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -227,4 +229,31 @@
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+html[data-reduce-motion='1'] *,
+html[data-reduce-motion='1'] *::before,
+html[data-reduce-motion='1'] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Larger text — bump the root size so every rem scales up */
+html.a11y-large-text {
+  font-size: 112.5%;
+}
+
+/* High contrast — strengthen borders + secondary text in both themes */
+html.a11y-high-contrast:not([data-theme='dark']) {
+  --border: 148 163 184;
+  --border-strong: 100 116 139;
+  --text-secondary: 30 41 59;
+  --text-muted: 51 65 85;
+}
+html.a11y-high-contrast[data-theme='dark'] {
+  --border: 100 116 139;
+  --border-strong: 148 163 184;
+  --text-secondary: 226 232 240;
+  --text-muted: 203 213 225;
 }

@@ -2,15 +2,15 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
-import { MotionConfig } from "framer-motion";
 import { ThemeProvider } from "./lib/theme.jsx";
+import { PreferencesProvider } from "./lib/preferences.jsx";
 import App from "./App.jsx";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <ThemeProvider>
-      <MotionConfig reducedMotion="user">
+      <PreferencesProvider>
         <BrowserRouter>
           <App />
           <Toaster
@@ -35,7 +35,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             }}
           />
         </BrowserRouter>
-      </MotionConfig>
+      </PreferencesProvider>
     </ThemeProvider>
   </React.StrictMode>
 );
